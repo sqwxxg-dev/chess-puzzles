@@ -1,0 +1,17 @@
+# macOS / Xcode
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+Payload/
+dist/
+*.ipa
+
+# python
+__pycache__/
+*.pyc
+
+# local puzzle dumps
+*.csv
+*.csv.zst

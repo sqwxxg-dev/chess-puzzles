@@ -1,0 +1,87 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Build unsigned .app
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project ios/ChessPuzzles.xcodeproj \
+            -target ChessPuzzles \
+            -configuration Release \
+            -sdk iphoneos \
+            SYMROOT="$PWD/build" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP="build/Release-iphoneos/ChessPuzzles.app"
+          ls -la "$APP"
+          rm -rf Payload dist
+          mkdir -p Payload dist
+          cp -R "$APP" Payload/
+
+          # legacy icon set, generated from the 1024px master
+          icon="assets/icon-1024.png"
+          if [ -f "$icon" ]; then
+            while read -r name size; do
+              sips -z "$size" "$size" "$icon" --out "Payload/ChessPuzzles.app/$name" >/dev/null
+            done <<'EOF'
+          AppIcon20x20@2x.png 40
+          AppIcon20x20@3x.png 60
+          AppIcon29x29@2x.png 58
+          AppIcon29x29@3x.png 87
+          AppIcon40x40@2x.png 80
+          AppIcon40x40@3x.png 120
+          AppIcon60x60@2x.png 120
+          AppIcon60x60@3x.png 180
+          AppIcon76x76@2x.png 152
+          AppIcon83.5x83.5@2x.png 167
+          EOF
+          fi
+
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" Payload/ChessPuzzles.app/Info.plist || true
+
+          zip -qry "dist/chess-puzzles-unsigned.ipa" Payload
+          ls -lh dist/
+          du -sh Payload/ChessPuzzles.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chess-puzzles-ipa
+          path: dist/chess-puzzles-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest \
+            "dist/chess-puzzles-unsigned.ipa#chess-puzzles-unsigned.ipa" \
+            --title "Chess Puzzles — latest build" \
+            --notes "Unsigned IPA (arm64, iOS 15+). Sign it with Sideloadly / iLoader / AltStore." \
+            --latest
+          echo "https://github.com/${{ github.repository }}/releases/latest/download/chess-puzzles-unsigned.ipa"
