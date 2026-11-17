@@ -163,7 +163,7 @@ function nextPuzzleData() {
 
 /* ------------------------- session ------------------------- */
 function startPuzzle(puzzle) {
-  const game = new Chess(puzzle.fen);
+  const game = new Chess(puzzle.f);
   const sol = puzzle.m.split(' ').filter(Boolean);
   const c = {
     puzzle: puzzle,
@@ -171,7 +171,7 @@ function startPuzzle(puzzle) {
     sol: sol,
     solIdx: 1,
     side: null,
-    hist: [{ fen: puzzle.fen, san: null, from: null, to: null, color: null, captured: null }],
+    hist: [{ fen: puzzle.f, san: null, from: null, to: null, color: null, captured: null }],
     review: null,
     phase: 'play',
     busy: false,
@@ -274,7 +274,7 @@ function renderBoard() {
 
     let coords = '';
     if (S.settings.coords) {
-      const bottomRow = flip ? i < 8 : i >= 56;
+      const bottomRow = i >= 56;
       if (bottomRow) coords += '<span class="cfile">' + name[0] + '</span>';
       const leftCol = i % 8 === 0;
       if (leftCol) coords += '<span class="crank">' + name[1] + '</span>';
@@ -283,7 +283,7 @@ function renderBoard() {
     const mark = c2.marks.has(name) ? '<div class="mark x"></div>' : '';
 
     parts.push('<div class="' + cls.join(' ') + '" data-sq="' + name + '">' +
-      '<div class="' + ovCls + '"></div>' + piece + mark + coords + '</div>');
+      '<div class="' + ovCls + '"></div>' + img + mark + coords + '</div>');
   }
 
   boardEl.innerHTML = parts.join('') + arrowLayer();
@@ -450,10 +450,15 @@ function canInteract() {
   return !!c && c.phase === 'play' && c.review == null && !c.busy && !promoOpen;
 }
 
+function canAnnotate() {
+  const c = S.current;
+  return !!c && c.phase !== 'reveal' && !c.busy;
+}
+
 function attemptMove(from, to, promo) {
   const c = S.current;
   if (!c || c.phase !== 'play' || c.review != null || c.busy) return;
-  const legal = c.game.moves({ square: from, verbose: true }).filter((m) => m.to === to);
+  const legal = c.game.moves({ square: from, verbose: true }).filter((m) => m.to === to && m.color === c.side);
   if (!legal.length) return; // not a legal move: silently ignore
 
   if (legal.length > 1) {
@@ -530,14 +535,14 @@ function wrongMove(from, to) {
   const dy = rb.top - ra.top;
 
   const ghost = document.createElement('div');
-  ghost.className = 'ghost';
+  ghost.className = 'dragghost';
   ghost.style.left = ra.left + 'px';
   ghost.style.top = ra.top + 'px';
   ghost.style.width = ra.width + 'px';
   ghost.style.height = ra.height + 'px';
   ghost.style.backgroundImage = getComputedStyle(src).backgroundImage;
   const inner = document.createElement('div');
-  inner.className = 'ghost-inner';
+  inner.className = 'dragghost-inner';
   ghost.appendChild(inner);
   document.body.appendChild(ghost);
   src.style.visibility = 'hidden';
@@ -666,10 +671,14 @@ function onBoardDown(e) {
   if (!target) return;
   const name = target.dataset.sq;
 
-  if (!canInteract()) return;
-  e.preventDefault();
-
   const tool = activeTool();
+
+  if (tool === 'move') {
+    if (!canInteract()) return;
+  } else if (!canAnnotate()) {
+    return;
+  }
+  e.preventDefault();
 
   if (tool === 'mark') {
     if (c.marks.has(name)) c.marks.delete(name); else c.marks.add(name);
@@ -684,8 +693,11 @@ function onBoardDown(e) {
   }
 
   if (tool === 'arrow') {
-    arrowDraw = { from: name };
-    boardEl().setPointerCapture(e.pointerId);
+    const targets = arrowTargets(name);
+    if (!Object.keys(targets).length) { haptic('error'); return; }
+    arrowDraw = { from: name, targets: targets };
+    $$('#board .sq').forEach((el) => el.classList.toggle('alo', !!targets[el.dataset.sq]));
+    try { boardEl().setPointerCapture(e.pointerId); } catch (err) {}
     updateTempArrow(name, e.clientX, e.clientY);
     haptic('tick');
     return;
@@ -707,7 +719,7 @@ function onBoardDown(e) {
     const pcEl = el.querySelector('.pc');
     const r = pcEl.getBoundingClientRect();
     const ghost = document.createElement('div');
-    ghost.className = 'ghost';
+    ghost.className = 'dragghost';
     ghost.style.left = r.left + 'px';
     ghost.style.top = r.top + 'px';
     ghost.style.width = r.width + 'px';
@@ -723,7 +735,7 @@ function onBoardDown(e) {
     const newPc = sqEl(name) ? sqEl(name).querySelector('.pc') : null;
     if (newPc) newPc.style.opacity = '0';
     moveGhost(e.clientX, e.clientY);
-    boardEl().setPointerCapture(e.pointerId);
+    try { boardEl().setPointerCapture(e.pointerId); } catch (err) {}
     return;
   }
 
@@ -749,7 +761,7 @@ function onBoardMove(e) {
 
   if (arrowDraw) {
     const name = sqFromPoint(e.clientX, e.clientY);
-    updateTempArrow(arrowDraw.from, e.clientX, e.clientY, name);
+    updateTempArrow(arrowDraw.from, e.clientX, e.clientY, name, !!(name && arrowDraw.targets[name]));
   }
 }
 
@@ -782,9 +794,12 @@ function onBoardUp(e) {
     arrowDraw = null;
     const target = sqFromPoint(e.clientX, e.clientY);
     hideTempArrow();
+    $$('#board .sq.alo').forEach((el) => el.classList.remove('alo'));
     if (target && target !== a.from) {
+      if (!a.targets[target]) { haptic('error'); return; }
       const exists = c.arrows.findIndex((x) => x[0] === a.from && x[1] === target);
       if (exists >= 0) c.arrows.splice(exists, 1); else c.arrows.push([a.from, target]);
+      haptic('tick');
       render();
     } else if (target === a.from) {
       const before = c.arrows.length;
@@ -795,7 +810,76 @@ function onBoardUp(e) {
   }
 }
 
-function updateTempArrow(from, x, y, toName) {
+/* Squares an arrow may point to, following the movement rules of the piece
+   standing on the origin square (blocked rays stop, own pieces block). */
+function arrowTargets(from) {
+  const c = S.current;
+  if (!c) return {};
+  const board = fenToBoard(c.hist[currentViewIndex(c)].fen);
+  const at = (f, r) => (f < 0 || f > 7 || r < 1 || r > 8) ? undefined : board[f + (8 - r) * 8];
+  const f0 = FILES.indexOf(from[0]);
+  const r0 = +from[1];
+  const piece = at(f0, r0);
+  if (!piece || f0 < 0) return {};
+
+  const white = piece === piece.toUpperCase();
+  const type = piece.toLowerCase();
+  const out = {};
+
+  const add = (f, r) => {
+    if (f < 0 || f > 7 || r < 1 || r > 8) return false;
+    const p = at(f, r);
+    const name = FILES[f] + r;
+    if (p) {
+      if ((p === p.toUpperCase()) === white) return false; // own piece blocks
+      out[name] = true;
+      return false;                                        // capture ends the ray
+    }
+    out[name] = true;
+    return true;
+  };
+
+  const RAYS = {
+    b: [[1, 1], [1, -1], [-1, -1], [-1, 1]],
+    r: [[0, 1], [1, 0], [0, -1], [-1, 0]],
+    q: [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]]
+  };
+  const STEPS = {
+    n: [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]],
+    k: [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]]
+  };
+
+  if (RAYS[type]) {
+    for (const d of RAYS[type]) {
+      let f = f0 + d[0], r = r0 + d[1];
+      while (add(f, r)) { f += d[0]; r += d[1]; }
+    }
+    return out;
+  }
+  if (STEPS[type]) {
+    for (const d of STEPS[type]) add(f0 + d[0], r0 + d[1]);
+    return out;
+  }
+  if (type === 'p') {
+    const dir = white ? 1 : -1;
+    const startRank = white ? 2 : 7;
+    const r1 = r0 + dir;
+    if (r1 >= 1 && r1 <= 8 && !at(f0, r1)) {
+      out[FILES[f0] + r1] = true;
+      const r2 = r0 + dir * 2;
+      if (r0 === startRank && r2 >= 1 && r2 <= 8 && !at(f0, r2)) out[FILES[f0] + r2] = true;
+    }
+    for (const df of [-1, 1]) {
+      const f = f0 + df, r = r0 + dir;
+      if (f < 0 || f > 7 || r < 1 || r > 8) continue;
+      const p = at(f, r);
+      if (p && (p === p.toUpperCase()) !== white) out[FILES[f] + r] = true;
+    }
+  }
+  return out;
+}
+
+function updateTempArrow(from, x, y, toName, ok) {
   const svg = $('#board svg.arrows');
   const tmp = $('#tempArrow');
   if (!svg || !tmp) return;
@@ -806,10 +890,10 @@ function updateTempArrow(from, x, y, toName) {
   if (toName) { const b = posOf(toName, flip); bx = b.x; by = b.y; }
   else { bx = (x - r.left) / r.width * 800; by = (y - r.top) / r.height * 800; }
   tmp.setAttribute('points', arrowPolygon(a.x, a.y, bx, by));
-  tmp.setAttribute('fill', 'rgba(255,252,245,0.9)');
+  tmp.setAttribute('fill', ok === false ? 'rgba(229,72,77,0.55)' : 'rgba(255,252,245,0.9)');
   tmp.setAttribute('stroke', 'rgba(0,0,0,0.3)');
   tmp.setAttribute('stroke-width', '2');
-  tmp.setAttribute('opacity', '0.85');
+  tmp.setAttribute('opacity', ok === false ? '0.35' : '0.85');
 }
 
 function hideTempArrow() {
