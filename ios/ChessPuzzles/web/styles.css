@@ -15,7 +15,7 @@
   --red: #e5484d;
   --blue: #5aa2f0;
 
-  --board: min(calc(100vw - 84px), calc(100dvh - 282px), 540px);
+  --board: min(calc(100vw - 96px), calc(100dvh - 300px), 540px);
   --sq: calc(var(--board) / 8);
   --r: 14px;
   --safe-t: env(safe-area-inset-top, 0px);
@@ -218,7 +218,7 @@ h1 {
   flex: 1; display: flex; align-items: center; justify-content: center;
   gap: 10px; min-height: 0; margin-top: 10px;
 }
-#screen-game.has-review { --board: min(calc(100vw - 84px), calc(100dvh - 330px), 540px); }
+#screen-game.has-review { --board: min(calc(100vw - 96px), calc(100dvh - 348px), 540px); }
 
 .dock {
   display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto;
@@ -434,6 +434,6 @@ svg.arrows {
   h1 { font-size: 28px; }
   .mini-stats { padding: 8px 6px; }
   .mini-stat b { font-size: 17px; }
-  :root { --board: min(calc(100vw - 84px), calc(100dvh - 250px), 540px); }
-  #screen-game.has-review { --board: min(calc(100vw - 84px), calc(100dvh - 296px), 540px); }
+  :root { --board: min(calc(100vw - 96px), calc(100dvh - 268px), 540px); }
+  #screen-game.has-review { --board: min(calc(100vw - 96px), calc(100dvh - 316px), 540px); }
 }

@@ -280,7 +280,7 @@ function renderBoard() {
       if (leftCol) coords += '<span class="crank">' + name[1] + '</span>';
     }
 
-    const mark = c2.marks.has(name) ? '<div class="mark x"></div>' : '';
+    const mark = (c2.marks.has(name) && !squares[idx]) ? '<div class="mark x"></div>' : '';
 
     parts.push('<div class="' + cls.join(' ') + '" data-sq="' + name + '">' +
       '<div class="' + ovCls + '"></div>' + img + mark + coords + '</div>');
@@ -445,6 +445,14 @@ function flashWrong(name) {
 }
 
 /* ------------------------- moving ------------------------- */
+function pieceAt(name) {
+  const c = S.current;
+  if (!c) return null;
+  const board = fenToBoard(c.hist[currentViewIndex(c)].fen);
+  const i = FILES.indexOf(name[0]) + (8 - +name[1]) * 8;
+  return board[i] || null;
+}
+
 function canInteract() {
   const c = S.current;
   return !!c && c.phase === 'play' && c.review == null && !c.busy && !promoOpen;
@@ -681,6 +689,7 @@ function onBoardDown(e) {
   e.preventDefault();
 
   if (tool === 'mark') {
+    if (pieceAt(name)) { haptic('error'); return; }
     if (c.marks.has(name)) c.marks.delete(name); else c.marks.add(name);
     render();
     haptic('tick');
