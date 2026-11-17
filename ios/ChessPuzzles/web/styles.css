@@ -215,8 +215,8 @@ h1 {
 .review-label .san { color: var(--amber); font-weight: 700; }
 
 .board-wrap {
-  flex: 1; display: flex; align-items: center; justify-content: center;
-  gap: 10px; min-height: 0; margin-top: 10px;
+  flex: 1; display: flex; align-items: flex-start; justify-content: center;
+  gap: 10px; min-height: 0; margin-top: 12px;
 }
 #screen-game.has-review { --board: min(calc(100vw - 82px), calc(100vh - 348px), 540px); }
 
@@ -341,6 +341,7 @@ svg.arrows {
   opacity: .85; animation: pop .25s ease;
 }
 .captured .cap-label { margin-right: 2px; opacity: .8; }
+.captured:empty { display: none; }
 @keyframes pop { from { transform: scale(.4); opacity: 0 } to { transform: scale(1); opacity: .85 } }
 
 .puzzle-meta {
