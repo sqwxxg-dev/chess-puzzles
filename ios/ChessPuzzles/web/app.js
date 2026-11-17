@@ -912,20 +912,21 @@ function hideTempArrow() {
 
 function eraseAt(name) {
   const c = S.current;
-  const hadMark = c.marks.delete(name);
-  const before = c.arrows.length;
-  c.arrows = c.arrows.filter((a) => a[0] !== name && a[1] !== name);
-  const hadArrows = c.arrows.length !== before;
-  if (!hadMark && !hadArrows) {
-    // nothing here -> clear everything
-    if (c.marks.size || c.arrows.length) {
-      c.marks.clear();
-      c.arrows = [];
-      toast('Заметки очищены');
-    }
+  let changed = false;
+
+  // one element per tap: the note on this square first, then arrows touching it
+  if (c.marks.has(name)) {
+    c.marks.delete(name);
+    changed = true;
+  } else {
+    const before = c.arrows.length;
+    c.arrows = c.arrows.filter((a) => a[0] !== name && a[1] !== name);
+    changed = c.arrows.length !== before;
   }
-  render();
+
+  if (!changed) return;
   haptic('tick');
+  render();
 }
 
 function activeTool() {
