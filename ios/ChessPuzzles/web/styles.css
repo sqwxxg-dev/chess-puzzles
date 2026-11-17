@@ -331,8 +331,12 @@ svg.arrows {
   width: 52px; height: 52px; border: 0; border-radius: 10px;
   background: #e9dcc6; display: grid; place-items: center;
   transition: transform .1s, background .15s;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
 }
 .promo-row button:active { transform: scale(.94); background: #f3e8d4; }
+/* white pieces need a dark tile, black pieces a light one */
+.promo.side-w .promo-row button { background: #4c3a29; }
+.promo.side-w .promo-row button:active { background: #5d4a36; }
 .promo-row button i {
   width: 42px; height: 42px;
   background-size: contain; background-position: center; background-repeat: no-repeat;

@@ -646,11 +646,12 @@ function openPromotion(from, to, choices) {
 function buildPromo() {
   const st = promoState;
   const box = document.createElement('div');
-  box.className = 'promo';
+  box.className = 'promo side-' + (st.side || (S.current && S.current.side) || 'w');
   const opts = (st.choices || []).map((c) => c.promotion).filter(Boolean);
   const list = opts.length ? opts.filter((v, i, a) => a.indexOf(v) === i) : ['q', 'n', 'r', 'b'];
+  const color = st.side || (S.current && S.current.side) || 'w';
   box.innerHTML = '<div class="promo-row">' + list.map((t) =>
-    '<button data-promo="' + t + '"><i style="background-image:url(' + pieceImg(S.current.side, t) + ')"></i></button>'
+    '<button data-promo="' + t + '"><i style="background-image:url(' + pieceImg(color, t) + ')"></i></button>'
   ).join('') + '</div>';
   box.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-promo]');
