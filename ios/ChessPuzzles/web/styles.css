@@ -315,6 +315,29 @@ svg.arrows {
   pointer-events: none; z-index: 6;
 }
 
+/* promotion picker */
+.promo {
+  position: absolute; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 8, 6, .55);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+}
+.promo-row {
+  display: flex; gap: 6px; padding: 8px;
+  background: var(--card); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: 0 12px 30px rgba(0,0,0,.5);
+}
+.promo-row button {
+  width: 52px; height: 52px; border: 0; border-radius: 10px;
+  background: #e9dcc6; display: grid; place-items: center;
+  transition: transform .1s, background .15s;
+}
+.promo-row button:active { transform: scale(.94); background: #f3e8d4; }
+.promo-row button i {
+  width: 42px; height: 42px;
+  background-size: contain; background-position: center; background-repeat: no-repeat;
+}
+
 /* dragging / ghosts */
 .dragghost {
   position: fixed; z-index: 80; pointer-events: none;

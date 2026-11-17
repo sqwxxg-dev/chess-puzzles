@@ -184,9 +184,9 @@ function startPuzzle(puzzle) {
   // the first move of a lichess puzzle is played by the opponent
   const first = uciToMove(sol[0]);
   const m = game.move({ from: first.from, to: first.to, promotion: first.promotion });
-  if (m) {
-    c.hist.push({ fen: game.fen(), san: m.san, from: m.from, to: m.to, color: m.color, captured: m.captured || null });
-  }
+  if (!m) return null; // malformed puzzle data
+
+  c.hist.push({ fen: game.fen(), san: m.san, from: m.from, to: m.to, color: m.color, captured: m.captured || null });
   c.side = game.turn();
   c.token++;
 
@@ -194,11 +194,8 @@ function startPuzzle(puzzle) {
   render();
   showScreen('game');
 
-  // animate the opponent's setup move
-  if (m) {
-    slideAnim(m.from, m.to);
-    haptic('tick');
-  }
+  slideAnim(m.from, m.to);
+  haptic('tick');
   return c;
 }
 
@@ -297,6 +294,8 @@ function renderBoard() {
     tmp.setAttribute('opacity', '0');
     svg.appendChild(tmp);
   }
+
+  if (promoState) boardEl.appendChild(buildPromo());
 }
 
 function posOf(name, flip) {
@@ -636,24 +635,39 @@ function stepReview(delta) {
 
 /* ------------------------- promotion ------------------------- */
 let promoOpen = false;
+let promoState = null;
 
 function openPromotion(from, to, choices) {
+  promoState = { from: from, to: to, choices: choices };
   promoOpen = true;
-  const boardEl = $('#board');
+  renderBoard();
+}
+
+function buildPromo() {
+  const st = promoState;
   const box = document.createElement('div');
   box.className = 'promo';
-  box.innerHTML = '<div class="promo-row">' +
-    ['q', 'n', 'r', 'b'].map((t) =>
-      '<button data-promo="' + t + '"><i style="background-image:url(' + pieceImg(S.current.side, t) + ')"></i></button>'
-    ).join('') + '</div>';
-  boardEl.appendChild(box);
+  const opts = (st.choices || []).map((c) => c.promotion).filter(Boolean);
+  const list = opts.length ? opts.filter((v, i, a) => a.indexOf(v) === i) : ['q', 'n', 'r', 'b'];
+  box.innerHTML = '<div class="promo-row">' + list.map((t) =>
+    '<button data-promo="' + t + '"><i style="background-image:url(' + pieceImg(S.current.side, t) + ')"></i></button>'
+  ).join('') + '</div>';
   box.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-promo]');
-    if (!btn) return;
-    box.remove();
-    promoOpen = false;
-    attemptMove(from, to, btn.dataset.promo);
+    if (btn) {
+      const from = st.from, to = st.to, promo = btn.dataset.promo;
+      promoState = null;
+      promoOpen = false;
+      attemptMove(from, to, promo);
+      return;
+    }
+    if (e.target === box) {
+      promoState = null;
+      promoOpen = false;
+      render();
+    }
   });
+  return box;
 }
 
 /* ------------------------- input ------------------------- */
@@ -964,9 +978,12 @@ function closeSheet(id) { $('#' + id).classList.remove('on'); }
 
 function startNewPuzzle() {
   if (S.current) S.current.token++;
-  const data = nextPuzzleData();
-  if (!data) { toast('Нет данных головоломок'); return; }
-  startPuzzle(data);
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const data = nextPuzzleData();
+    if (!data) break;
+    if (startPuzzle(data)) return;
+  }
+  toast('Не удалось загрузить головоломку');
 }
 
 function init() {
