@@ -5,6 +5,10 @@ Usage:  python scripts/build_puzzles.py <lichess_db_puzzle.csv.zst>
 
 Produces ios/ChessPuzzles/web/data/puzzles.js with a fixed number of
 reservoir-sampled puzzles per difficulty bucket.
+
+Buckets are tuned to feel easier than their label: the rating window of each
+level starts lower than before and the solution length is capped, so a "hard"
+puzzle is still solvable without engine help.
 """
 
 import csv
@@ -16,20 +20,20 @@ import sys
 
 from compression import zstd
 
-PER_BUCKET = 1100
-SEED = 20261117
+PER_BUCKET = 5000
+SEED = 20261118
 
+# (min rating, max rating, max solution plies)
 BUCKETS = [
-    (0, 1200),        # easy
-    (1200, 1600),     # medium
-    (1600, 2000),     # hard
-    (2000, 9999),     # very hard
+    (400, 1000, 6),    # easy
+    (1000, 1400, 8),   # medium
+    (1400, 1800, 10),  # hard
+    (1800, 2400, 12),  # very hard
 ]
 
-MIN_POPULARITY = 85
-MIN_PLAYS = 800
+MIN_POPULARITY = 80
+MIN_PLAYS = 500
 MIN_MOVES = 2
-MAX_MOVES = 12
 
 # themes that are nice to show on the board, most specific first
 THEME_PREF = [
@@ -43,7 +47,7 @@ THEME_PREF = [
 
 
 def bucket_of(rating):
-    for i, (lo, hi) in enumerate(BUCKETS):
+    for i, (lo, hi, _) in enumerate(BUCKETS):
         if lo <= rating < hi:
             return i
     return None
@@ -59,7 +63,6 @@ def main(path):
         reader = csv.reader(fh)
         header = next(reader)
         idx = {name: i for i, name in enumerate(header)}
-        i_id = idx["PuzzleId"]
         i_fen = idx["FEN"]
         i_mov = idx["Moves"]
         i_rat = idx["Rating"]
@@ -78,12 +81,12 @@ def main(path):
             if pop < MIN_POPULARITY or plays < MIN_PLAYS:
                 continue
 
-            moves = row[i_mov].split()
-            if not (MIN_MOVES <= len(moves) <= MAX_MOVES):
-                continue
-
             b = bucket_of(rating)
             if b is None:
+                continue
+
+            moves = row[i_mov].split()
+            if not (MIN_MOVES <= len(moves) <= BUCKETS[b][2]):
                 continue
 
             url = row[i_url]
@@ -122,6 +125,8 @@ def main(path):
         ratings = [it["r"] for _, it in bucket]
         if ratings:
             print(f"bucket {i}: {len(bucket)} puzzles, rating {min(ratings)}-{max(ratings)}")
+        else:
+            print(f"bucket {i}: EMPTY")
     print(f"total: {len(out)}")
 
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -132,7 +137,7 @@ def main(path):
         fh.write("window.PUZZLES=")
         fh.write(payload)
         fh.write(";\n")
-    print(f"wrote {dest} ({os.path.getsize(dest) / 1024:.0f} KB)")
+    print(f"wrote {dest} ({os.path.getsize(dest) / 1024 / 1024:.2f} MB)")
 
 
 if __name__ == "__main__":

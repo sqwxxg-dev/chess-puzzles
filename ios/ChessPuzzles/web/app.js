@@ -34,17 +34,33 @@ const Store = {
 
 /* ------------------------- state ------------------------- */
 const DIFFS = [
-  { name: 'Лёгкий',         min: 0,    max: 1200, hint: 'рейтинг 600–1200' },
-  { name: 'Средний',        min: 1200, max: 1600, hint: 'рейтинг 1200–1600' },
-  { name: 'Сложный',        min: 1600, max: 2000, hint: 'рейтинг 1600–2000' },
-  { name: 'Очень сложный',  min: 2000, max: 9999, hint: 'рейтинг 2000+' }
+  { name: 'Лёгкий',        min: 400,  max: 1000, hint: 'эло 400–1000',  color: '#2fbf71', lives: 3 },
+  { name: 'Средний',       min: 1000, max: 1400, hint: 'эло 1000–1400', color: '#e0c23f', lives: 3 },
+  { name: 'Сложный',       min: 1400, max: 1800, hint: 'эло 1400–1800', color: '#e8743f', lives: 2 },
+  { name: 'Очень сложный', min: 1800, max: 2400, hint: 'эло 1800–2400', color: '#9b6bf0', lives: 2 }
 ];
+
+const THEME_META = {
+  classic: '#15130f',
+  noir: '#0b0b0e',
+  emerald: '#0a1411',
+  royal: '#110d19',
+  wood: '#f1e7d4'
+};
 
 const S = {
   streak: Store.get('cp.streak', 0),
   best:   Store.get('cp.best', 0),
   solved: Store.get('cp.solved', 0),
-  settings: Object.assign({ toolsSide: 'right', haptics: true, coords: true, diff: 1 }, Store.get('cp.settings', {})),
+  settings: Object.assign({
+    toolsSide: 'bottom',
+    haptics: true,
+    coords: true,
+    diff: 1,
+    theme: 'classic',
+    music: 'calm',
+    volume: 35
+  }, Store.get('cp.settings', {})),
   current: null,
   bag: [],
   lastPuzzle: null
@@ -82,6 +98,7 @@ function saveSettings() { Store.set('cp.settings', S.settings); }
 
 function showScreen(name) {
   $$('.screen').forEach((el) => el.classList.toggle('active', el.id === 'screen-' + name));
+  if (name === 'game') requestAnimationFrame(fitBoard);
 }
 
 let toastTimer = null;
@@ -163,39 +180,54 @@ function nextPuzzleData() {
 
 /* ------------------------- session ------------------------- */
 function startPuzzle(puzzle) {
-  const game = new Chess(puzzle.f);
   const sol = puzzle.m.split(' ').filter(Boolean);
+  if (!sol.length) return null;
+
+  // validate the opponent's setup move before showing anything
+  const probe = new Chess(puzzle.f);
+  const first = uciToMove(sol[0]);
+  if (!probe.move({ from: first.from, to: first.to, promotion: first.promotion })) return null;
+
+  const diff = DIFFS[S.settings.diff] || DIFFS[1];
   const c = {
     puzzle: puzzle,
-    game: game,
+    game: new Chess(puzzle.f),
     sol: sol,
-    solIdx: 1,
-    side: null,
+    solIdx: 0,
+    side: probe.turn(),
     hist: [{ fen: puzzle.f, san: null, from: null, to: null, color: null, captured: null }],
     review: null,
-    phase: 'play',
-    busy: false,
+    phase: 'intro',
+    busy: true,
     sel: null,
     marks: new Set(),
     arrows: [],
-    token: 0
+    lives: diff.lives,
+    maxLives: diff.lives,
+    token: 0,
+    timer: null
   };
-
-  // the first move of a lichess puzzle is played by the opponent
-  const first = uciToMove(sol[0]);
-  const m = game.move({ from: first.from, to: first.to, promotion: first.promotion });
-  if (!m) return null; // malformed puzzle data
-
-  c.hist.push({ fen: game.fen(), san: m.san, from: m.from, to: m.to, color: m.color, captured: m.captured || null });
-  c.side = game.turn();
-  c.token++;
 
   S.current = c;
   render();
   showScreen('game');
+  fitBoard();
 
-  slideAnim(m.from, m.to);
-  haptic('tick');
+  // let the player see the position before the opponent's setup move
+  const delay = 950 + Math.random() * 500;
+  const token = ++c.token;
+  c.timer = setTimeout(() => {
+    if (S.current !== c || c.token !== token) return;
+    const m = applyScripted(sol[0], { setup: true });
+    c.phase = 'play';
+    c.busy = false;
+    render();
+    if (m) {
+      slideAnim(m.from, m.to);
+      haptic('tick');
+    }
+  }, delay);
+
   return c;
 }
 
@@ -366,10 +398,15 @@ function renderChrome() {
   $('#side-pill').classList.toggle('black', c.side === 'b');
 
   $('#g-streak').textContent = S.streak;
+  renderLives();
 
   const btn = $('#btn-action');
   btn.classList.remove('green', 'red', 'primary');
-  if (c.phase === 'play') {
+  if (c.phase === 'intro') {
+    btn.textContent = 'Ход оппонента…';
+    btn.classList.add('green');
+    btn.disabled = true;
+  } else if (c.phase === 'play') {
     btn.textContent = 'Посмотреть решение';
     btn.classList.add('green');
     btn.disabled = false;
@@ -390,7 +427,6 @@ function renderChrome() {
     const last = c.hist.length - 1;
     const idx = c.review == null ? last : c.review;
     $('#review-label').textContent = idx + ' / ' + last;
-    $('#review-san').textContent = idx > 0 ? c.hist[idx].san : '';
     $('#btn-prev').disabled = idx <= 0;
     $('#btn-next').disabled = idx >= last;
   }
@@ -406,15 +442,69 @@ function renderChrome() {
     capEl.innerHTML = '';
   }
 
-  const meta = [];
-  if (c.puzzle.r) meta.push('Рейтинг ' + c.puzzle.r);
-  if (c.puzzle.t) {
-    const first = c.puzzle.t.split(' ').map((t) => THEMES_RU[t] || t).slice(0, 2);
-    if (first.length) meta.push(first.join(' · '));
+  // elo badge + tiny bar showing where the puzzle sits inside the band
+  const d = DIFFS[S.settings.diff] || DIFFS[1];
+  const elo = c.puzzle.r || 0;
+  $('#meta-elo').textContent = elo || '—';
+  const span = Math.max(1, d.max - d.min);
+  const pct = Math.max(0, Math.min(1, (elo - d.min) / span));
+  $('#elo-fill').style.width = Math.round(pct * 100) + '%';
+
+  // goal icon + theme label
+  const raw = (c.puzzle.t || '').trim();
+  const parts = raw.split(' ').filter(Boolean).map((t) => THEMES_RU[t] || t).slice(0, 2);
+  const wrap = $('#meta-theme-wrap');
+  if (parts.length) {
+    $('#theme-ico').innerHTML = themeIcon(raw);
+    $('#meta-theme').textContent = parts.join(' · ');
+    wrap.classList.remove('hidden');
+  } else {
+    $('#meta-theme').textContent = '';
+    wrap.classList.add('hidden');
   }
-  $('#meta-rating').textContent = meta[0] || '';
-  $('#meta-theme').textContent = meta[1] || '';
+
+  fitBoard();
+  moveDockIndicator();
 }
+
+/* remaining attempts as little dots in the header */
+function renderLives() {
+  const c = S.current;
+  const el = $('#lives');
+  if (!el) return;
+  if (!c || !c.maxLives) { el.innerHTML = ''; return; }
+  let html = '';
+  for (let i = 0; i < c.maxLives; i++) {
+    html += '<i class="life' + (i < c.lives ? ' on' : ' lost') + '"></i>';
+  }
+  el.innerHTML = html;
+}
+
+/* small pictogram describing the goal of the puzzle */
+function themeIcon(raw) {
+  const s = (raw || '').toLowerCase();
+  const wrap = (p) => '<svg viewBox="0 0 24 24">' + p + '</svg>';
+  if (s.includes('mate') || s.includes('smothered')) {
+    return wrap('<path d="M3 17l2-9 4 4 3-7 3 7 4-4 2 9z"/><path d="M4 20h16"/>');
+  }
+  if (s.includes('promotion')) {
+    return wrap('<path d="M12 21V7"/><path d="M7 12l5-5 5 5"/><path d="M8 3h8"/>');
+  }
+  if (s.includes('endgame')) {
+    return wrap('<path d="M8 20h8l-1.2-6.5L12 10l-2.8 3.5z"/><path d="M12 10V6"/><path d="M10 6h4"/>');
+  }
+  if (s.includes('fork') || s.includes('pin') || s.includes('skewer') || s.includes('discovered') || s.includes('xray')) {
+    return wrap('<path d="M4 20L20 4"/><path d="M4 4l16 16"/><circle cx="12" cy="12" r="2.6"/>');
+  }
+  if (s.includes('sacrifice') || s.includes('attraction')) {
+    return wrap('<path d="M12 3c2 4-1 5.4-1 8a3 3 0 0 0 6 0c0-2-1-3-1.6-4 .3 2-1 3-3.4 2.4C15 6 13 4 12 3z"/><path d="M6 21h12"/>');
+  }
+  if (s.includes('defensive') || s.includes('defense')) {
+    return wrap('<path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6z"/><path d="M9 12l2 2 4-4"/>');
+  }
+  return wrap('<path d="M12 3l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.4l6.1-.8z"/>');
+}
+
 
 /* ------------------------- animations ------------------------- */
 function sqEl(name) { return $('#board .sq[data-sq="' + name + '"]'); }
@@ -518,13 +608,24 @@ function afterUserMove() {
 
 function wrongMove(from, to) {
   const c = S.current;
+  if (!c || c.phase !== 'play') return;
   c.busy = true;
   c.sel = null;
 
-  S.streak = 0;
-  saveStats();
+  c.lives = Math.max(0, c.lives - 1);
+  const out = c.lives <= 0;
+  if (out) { S.streak = 0; saveStats(); }
+
   haptic('error');
   renderChrome();
+
+  const board = $('#board');
+  if (board) {
+    board.classList.remove('shake');
+    void board.offsetWidth;
+    board.classList.add('shake');
+    setTimeout(() => board.classList.remove('shake'), 430);
+  }
 
   const src = sqEl(from) ? sqEl(from).querySelector('.pc') : null;
   const dest = sqEl(to);
@@ -532,7 +633,7 @@ function wrongMove(from, to) {
     const ov = dest.querySelector('.ov');
     if (ov) ov.classList.add('hl-bad');
   }
-  toast('Неверный ход — серия сброшена', 'bad');
+  toast(out ? 'Попытки кончились — серия сброшена' : 'Неверный ход · осталось ' + c.lives, 'bad');
 
   if (!src || !dest) { c.busy = false; render(); return; }
 
@@ -949,6 +1050,143 @@ function activeTool() {
   return el ? el.dataset.tool : 'move';
 }
 
+/* ------------------------- soundtrack ------------------------- */
+/* Small procedural score: no audio files, so the app stays tiny. Themes are
+   generated with WebAudio and fade in/out with the volume setting. */
+const TRACKS = {
+  calm: {
+    bpm: 50, root: 196.00, wave: 'sine', pluck: 0.13,
+    chords: [[0, 7, 12], [-3, 4, 9], [-5, 2, 7], [-1, 5, 10]],
+    melody: [0, 4, 7, 11, 7, 4, 2, 6, 9, 6],
+    pat: [1, 0, 0, 1, 0, 0, 1, 0]
+  },
+  epic: {
+    bpm: 68, root: 164.81, wave: 'triangle', pluck: 0.12,
+    chords: [[0, 7, 12], [0, 5, 12], [-2, 3, 10], [-2, 5, 9]],
+    melody: [0, 3, 7, 10, 12, 10, 7, 3],
+    pat: [1, 0, 1, 0, 1, 0, 1, 1]
+  },
+  night: {
+    bpm: 44, root: 174.61, wave: 'sine', pluck: 0.11,
+    chords: [[0, 3, 10], [0, 7, 14], [-4, 3, 12], [-2, 5, 9]],
+    melody: [0, 3, 7, 10, 7, 3, 0, 12],
+    pat: [1, 0, 0, 0, 1, 0, 0, 0]
+  }
+};
+
+const Music = {
+  ctx: null,
+  master: null,
+  track: null,
+  loop: null,
+  step: 0,
+  next: 0,
+  theme: 'off',
+  wantTheme: 'off',
+  wantVol: 35,
+
+  ensure() {
+    if (this.ctx) return this.ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try { this.ctx = new AC(); } catch (e) { return null; }
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0;
+    this.master.connect(this.ctx.destination);
+    return this.ctx;
+  },
+
+  unlock() {
+    const ctx = this.ensure();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) {} }
+    this.apply(this.wantTheme, this.wantVol, true);
+  },
+
+  apply(theme, volume) {
+    this.wantTheme = theme || 'off';
+    this.wantVol = volume == null ? 35 : volume;
+    if (!this.ctx) return;
+    const target = this.wantVol / 100 * 0.6;
+    const t = this.ctx.currentTime;
+    try {
+      this.master.gain.cancelScheduledValues(t);
+      this.master.gain.setTargetAtTime(target, t, 0.5);
+    } catch (e) {}
+
+    if (this.wantTheme === 'off') { this.stop(); return; }
+    if (this.theme !== this.wantTheme) this.start(this.wantTheme);
+  },
+
+  start(theme) {
+    this.stop();
+    if (!this.ctx || !TRACKS[theme]) return;
+    this.theme = theme;
+    this.track = TRACKS[theme];
+    this.step = 0;
+    this.next = this.ctx.currentTime + 0.2;
+    this.loop = setInterval(() => this.tick(), 120);
+    this.tick();
+  },
+
+  stop() {
+    this.theme = 'off';
+    this.track = null;
+    if (this.loop) { clearInterval(this.loop); this.loop = null; }
+  },
+
+  tick() {
+    if (!this.ctx || !this.track) return;
+    const horizon = this.ctx.currentTime + 0.7;
+    let guard = 0;
+    while (this.next < horizon && guard++ < 64) {
+      this.schedule(this.step, this.next);
+      this.step++;
+      this.next += 60 / this.track.bpm / 2;
+    }
+  },
+
+  schedule(step, when) {
+    const tr = this.track;
+    if (!tr) return;
+    if (step % 16 === 0) {
+      const chord = tr.chords[Math.floor(step / 16) % tr.chords.length];
+      const dur = (60 / tr.bpm) * 8;
+      for (const semi of chord) this.pad(tr.root * Math.pow(2, semi / 12), when, dur, 0.05);
+    }
+    if (tr.pat[step % tr.pat.length]) {
+      const deg = tr.melody[Math.floor(step / 2) % tr.melody.length];
+      this.pluck(tr.root * 2 * Math.pow(2, deg / 12), when, tr.pluck);
+    }
+  },
+
+  pad(freq, when, dur, amp) {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.linearRampToValueAtTime(amp, when + 1.4);
+    g.gain.linearRampToValueAtTime(0.0001, when + dur);
+    o.connect(g); g.connect(this.master);
+    o.start(when); o.stop(when + dur + 0.2);
+  },
+
+  pluck(freq, when, amp) {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = (this.track && this.track.wave) || 'sine';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.linearRampToValueAtTime(amp, when + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0005, when + 1.6);
+    o.connect(g); g.connect(this.master);
+    o.start(when); o.stop(when + 1.8);
+  }
+};
+
 /* ------------------------- UI wiring ------------------------- */
 function renderMenuStats() {
   $('#m-streak').textContent = S.streak;
@@ -957,28 +1195,98 @@ function renderMenuStats() {
   $('#stat-streak').textContent = S.streak;
   $('#stat-best').textContent = S.best;
   $('#stat-solved').textContent = S.solved;
+  const foot = $('#foot-count');
+  if (foot) {
+    const n = (window.PUZZLES || []).length;
+    foot.textContent = n.toLocaleString('ru-RU') + ' головоломок';
+  }
 }
 
 function applySettings() {
-  // tools side
-  $('.board-wrap').style.flexDirection = S.settings.toolsSide === 'left' ? 'row' : 'row-reverse';
-  $$('#opt-side button').forEach((b) => b.classList.toggle('active', b.dataset.side === S.settings.toolsSide));
+  // theme
+  document.documentElement.dataset.theme = S.settings.theme || 'classic';
+  const meta = $('#theme-color');
+  if (meta) meta.setAttribute('content', THEME_META[S.settings.theme] || '#15130f');
+  $$('#opt-theme button').forEach((b) => b.classList.toggle('active', b.dataset.theme === S.settings.theme));
+
+  // tool dock position
+  const pos = S.settings.toolsSide || 'bottom';
+  $('#screen-game').dataset.dock = pos;
+  $$('#opt-side button').forEach((b) => b.classList.toggle('active', b.dataset.side === pos));
+
+  // toggles
   $('#opt-haptics').setAttribute('aria-checked', S.settings.haptics ? 'true' : 'false');
   $('#opt-coords').setAttribute('aria-checked', S.settings.coords ? 'true' : 'false');
-  // difficulty
-  const d = DIFFS[S.settings.diff] || DIFFS[1];
-  $('#diff').value = String(S.settings.diff);
+
+  // difficulty slider
+  const idx = Math.max(0, Math.min(3, S.settings.diff | 0));
+  const d = DIFFS[idx];
+  $('#diff').value = String(idx);
   $('#diff-name').textContent = d.name;
+  $('#diff-name').style.color = d.color;
   $('#diff-hint').textContent = d.hint;
-  $('#diff').style.setProperty('--fill', (S.settings.diff / 3 * 100) + '%');
+  const wrap = $('.range-wrap');
+  if (wrap) {
+    wrap.style.setProperty('--fill', 'calc(' + (idx / 3 * 100) + '% - ' + (idx / 3 * 26) + 'px)');
+    wrap.style.setProperty('--thumb-color', d.color);
+  }
+  $$('.diff-ticks span').forEach((s, i) => s.classList.toggle('on', i === idx));
+
+  // music
+  $$('#opt-music button').forEach((b) => b.classList.toggle('active', b.dataset.music === (S.settings.music || 'off')));
+  const vol = Math.max(0, Math.min(100, S.settings.volume | 0));
+  $('#music-vol').value = String(vol);
+  $('#vol-sub').textContent = vol + '%';
+  Music.apply(S.settings.music, vol);
+
+  moveDockIndicator();
+  fitBoard();
   if (S.current) render();
 }
+
+/* keep the amber tile under the active tool */
+function moveDockIndicator() {
+  const dock = $('#dock');
+  const ind = $('#dock-ind');
+  if (!dock || !ind) return;
+  const btn = dock.querySelector('.tool.active') || dock.querySelector('.tool');
+  if (!btn) return;
+  const dr = dock.getBoundingClientRect();
+  const br = btn.getBoundingClientRect();
+  ind.style.transform = 'translate(' + (br.left - dr.left - dock.clientLeft) + 'px,' +
+    (br.top - dr.top - dock.clientTop) + 'px)';
+}
+
+/* size the board to the space that is actually left on the screen */
+function fitBoard() {
+  const game = $('#screen-game');
+  if (!game || !game.classList.contains('active')) return;
+  const play = $('.play');
+  const dock = $('#dock');
+  if (!play || !dock) return;
+
+  const pos = game.dataset.dock || 'bottom';
+  const gap = 10;
+  const dockW = pos === 'bottom' ? 0 : dock.offsetWidth + gap;
+  const dockH = pos === 'bottom' ? dock.offsetHeight + gap : 0;
+  const extra = ($('#captured').offsetHeight || 0) + $('.puzzle-meta').offsetHeight + 12;
+
+  const availW = play.clientWidth - dockW;
+  const availH = play.clientHeight - dockH - extra;
+  const size = Math.max(168, Math.min(availW, availH, 620));
+  game.style.setProperty('--board', Math.round(size) + 'px');
+}
+
 
 function openSheet(id) { $('#' + id).classList.add('on'); }
 function closeSheet(id) { $('#' + id).classList.remove('on'); }
 
 function startNewPuzzle() {
-  if (S.current) S.current.token++;
+  const old = S.current;
+  if (old) {
+    old.token++;
+    if (old.timer) clearTimeout(old.timer);
+  }
   for (let attempt = 0; attempt < 6; attempt++) {
     const data = nextPuzzleData();
     if (!data) break;
@@ -1012,7 +1320,26 @@ function init() {
     S.settings.toolsSide = b.dataset.side;
     saveSettings();
     applySettings();
+    haptic('tick');
   }));
+  $$('#opt-theme button').forEach((b) => b.addEventListener('click', () => {
+    S.settings.theme = b.dataset.theme;
+    saveSettings();
+    applySettings();
+    haptic('tick');
+  }));
+  $$('#opt-music button').forEach((b) => b.addEventListener('click', () => {
+    S.settings.music = b.dataset.music;
+    saveSettings();
+    Music.unlock();
+    applySettings();
+    haptic('tick');
+  }));
+  $('#music-vol').addEventListener('input', (e) => {
+    S.settings.volume = +e.target.value;
+    saveSettings();
+    applySettings();
+  });
   $('#opt-haptics').addEventListener('click', () => {
     S.settings.haptics = !S.settings.haptics;
     saveSettings();
@@ -1035,7 +1362,8 @@ function init() {
 
   // game
   $('#btn-back').addEventListener('click', () => {
-    if (S.current) S.current.token++;
+    const c = S.current;
+    if (c) { c.token++; if (c.timer) clearTimeout(c.timer); }
     showScreen('menu');
     renderMenuStats();
   });
@@ -1051,6 +1379,7 @@ function init() {
   // tools
   $$('#dock .tool').forEach((b) => b.addEventListener('click', () => {
     $$('#dock .tool').forEach((x) => x.classList.toggle('active', x === b));
+    moveDockIndicator();
     haptic('tick');
   }));
 
@@ -1061,6 +1390,20 @@ function init() {
   b.addEventListener('pointerup', onBoardUp);
   b.addEventListener('pointercancel', onBoardUp);
   b.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // layout + audio lifecycle
+  window.addEventListener('resize', () => { fitBoard(); moveDockIndicator(); });
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => { fitBoard(); moveDockIndicator(); }, 260);
+  });
+  document.addEventListener('pointerdown', () => Music.unlock(), { once: true, capture: true });
+  document.addEventListener('visibilitychange', () => {
+    if (!Music.ctx) return;
+    try {
+      if (document.hidden) Music.ctx.suspend();
+      else if (Music.wantTheme !== 'off') Music.ctx.resume();
+    } catch (e) {}
+  });
 
   applySettings();
   renderMenuStats();

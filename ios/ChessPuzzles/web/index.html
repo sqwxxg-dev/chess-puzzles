@@ -1,16 +1,26 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" data-theme="classic">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="format-detection" content="telephone=no">
-<meta name="theme-color" content="#15130f">
+<meta name="theme-color" content="#15130f" id="theme-color">
 <title>Chess Puzzles</title>
-<link rel="stylesheet" href="styles.css?v=1">
+<link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
+
+<div class="backdrop" aria-hidden="true">
+  <div class="bd-grid"></div>
+  <div class="bd-glow bd-glow-a"></div>
+  <div class="bd-glow bd-glow-b"></div>
+  <img class="bd-piece bd-piece-1" src="pieces/wN.svg" alt="">
+  <img class="bd-piece bd-piece-2" src="pieces/bB.svg" alt="">
+  <img class="bd-piece bd-piece-3" src="pieces/bR.svg" alt="">
+</div>
+
 <div id="app">
 
   <!-- ================= MENU ================= -->
@@ -21,20 +31,34 @@
       </button>
       <div class="brand">CHESS<b>PUZZLES</b></div>
       <div class="topbar-spacer"></div>
+      <button id="btn-settings" class="icon-btn gear" aria-label="Настройки">
+        <svg viewBox="0 0 24 24" class="ico"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
     </header>
 
     <div class="menu-body">
       <div class="hero">
         <div class="hero-glow"></div>
-        <img class="hero-piece" src="pieces/wN.svg" alt="">
+        <div class="hero-ring"></div>
+        <img class="hero-piece hero-n" src="pieces/wN.svg" alt="">
+        <img class="hero-piece hero-b" src="pieces/bB.svg" alt="">
       </div>
-      <h1>Chess Puzzles</h1>
+      <h1>Chess <span>Puzzles</span></h1>
       <p class="tagline">Головоломки из реальных партий</p>
 
       <div class="mini-stats">
-        <div class="mini-stat"><b id="m-streak">0</b><span>серия</span></div>
-        <div class="mini-stat"><b id="m-best">0</b><span>рекорд</span></div>
-        <div class="mini-stat"><b id="m-solved">0</b><span>решено</span></div>
+        <div class="mini-stat">
+          <svg viewBox="0 0 24 24" class="ico"><path d="M12 2c1.5 3.5-.6 5.2-1.7 6.6C8.6 10.8 7 12.6 7 15a5 5 0 0 0 10 0c0-2-1-3.6-2-5 .2 1 .1 2-.6 2.7.3-3-1-6.4-2.4-10.7z"/></svg>
+          <b id="m-streak">0</b><span>серия</span>
+        </div>
+        <div class="mini-stat">
+          <svg viewBox="0 0 24 24" class="ico"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>
+          <b id="m-best">0</b><span>рекорд</span>
+        </div>
+        <div class="mini-stat">
+          <svg viewBox="0 0 24 24" class="ico"><path d="M20 6L9 17l-5-5"/></svg>
+          <b id="m-solved">0</b><span>решено</span>
+        </div>
       </div>
 
       <div class="diff">
@@ -42,27 +66,35 @@
           <span>Сложность</span>
           <b id="diff-name">Средний</b>
         </div>
-        <input id="diff" class="range" type="range" min="0" max="3" step="1" value="1">
-        <div class="diff-ticks">
-          <span>Лёгкий</span><span>Средний</span><span>Сложный</span><span>Очень сложный</span>
+        <div class="range-wrap">
+          <div class="range-track"></div>
+          <div id="range-dim" class="range-dim"></div>
+          <input id="diff" class="range" type="range" min="0" max="3" step="1" value="1">
         </div>
-        <div class="diff-hint" id="diff-hint">рейтинг 1200–1600</div>
+        <div class="diff-ticks">
+          <span data-i="0">Лёгкий</span><span data-i="1">Средний</span><span data-i="2">Сложный</span><span data-i="3">Очень сложный</span>
+        </div>
+        <div class="diff-hint" id="diff-hint">эло 1000–1400</div>
       </div>
 
-      <button id="btn-start" class="btn primary big">Начать игру</button>
-      <button id="btn-settings" class="btn ghost">Настройки</button>
-      <div class="hint">Одна ошибка — серия сбрасывается</div>
+      <button id="btn-start" class="btn primary big"><span>Начать игру</span></button>
+
+      <div class="menu-foot">
+        <span class="foot-chip" id="foot-count">20 000 головоломок</span>
+        <span class="foot-chip">Lichess · CC0</span>
+      </div>
     </div>
   </section>
 
   <!-- ================= GAME ================= -->
-  <section id="screen-game" class="screen">
+  <section id="screen-game" class="screen" data-dock="bottom">
     <header class="game-top">
       <button id="btn-back" class="icon-btn with-text">
         <svg viewBox="0 0 24 24" class="ico"><path d="M15 5l-7 7 7 7"/></svg>
         Меню
       </button>
       <div id="side-pill" class="side-pill"><i class="dot"></i><span id="side-text">Вы играете белыми</span></div>
+      <div class="lives" id="lives" aria-label="Попытки"></div>
       <div class="streak-pill" id="streak-pill">
         <svg viewBox="0 0 24 24" class="ico fire"><path d="M12 2c1.5 3.5-.6 5.2-1.7 6.6C8.6 10.8 7 12.6 7 15a5 5 0 0 0 10 0c0-2-1-3.6-2-5 .2 1 .1 2-.6 2.7.3-3-1-6.4-2.4-10.7z"/></svg>
         <b id="g-streak">0</b>
@@ -77,14 +109,15 @@
       <button id="btn-prev" class="icon-btn round" aria-label="Назад">
         <svg viewBox="0 0 24 24" class="ico"><path d="M15 5l-7 7 7 7"/></svg>
       </button>
-      <div class="review-label"><span id="review-label">1 / 1</span><span id="review-san" class="san"></span></div>
+      <div class="review-label"><span id="review-label">1 / 1</span></div>
       <button id="btn-next" class="icon-btn round" aria-label="Вперёд">
         <svg viewBox="0 0 24 24" class="ico"><path d="M9 5l7 7-7 7"/></svg>
       </button>
     </div>
 
-    <div class="board-wrap">
+    <div class="play">
       <div id="dock" class="dock">
+        <span class="dock-ind" id="dock-ind"></span>
         <button class="tool active" data-tool="move" aria-label="Ход">
           <svg viewBox="0 0 24 24" class="ico"><path d="M5 3l6.5 16 2.2-6.3L20 10.5z"/></svg>
         </button>
@@ -102,7 +135,17 @@
       <div class="board-col">
         <div id="board" class="board"></div>
         <div id="captured" class="captured"></div>
-        <div class="puzzle-meta"><span id="meta-rating"></span><span id="meta-theme"></span></div>
+        <div class="puzzle-meta">
+          <div class="meta-elo">
+            <span class="meta-k">Эло</span>
+            <b id="meta-elo">—</b>
+            <span class="elo-bar"><i id="elo-fill"></i></span>
+          </div>
+          <div class="meta-theme" id="meta-theme-wrap">
+            <span id="meta-theme"></span>
+            <span class="theme-ico" id="theme-ico"></span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -122,7 +165,7 @@
         <div><b id="stat-streak">0</b><span>текущая серия</span></div>
         <div><b id="stat-best">0</b><span>лучшая серия</span></div>
       </div>
-      <p class="sheet-note">Серия сбрасывается при ошибке и при показе решения.</p>
+      <p class="sheet-note">Серия сбрасывается, когда заканчиваются попытки, и при показе решения.</p>
     </div>
   </div>
 
@@ -135,11 +178,41 @@
       </div>
 
       <div class="setting">
+        <div class="setting-label">Тема оформления</div>
+        <div class="chips themes" id="opt-theme">
+          <button data-theme="classic"><i class="sw" style="--a:#e9b44c;--b:#221e18"></i>Классика</button>
+          <button data-theme="noir"><i class="sw" style="--a:#e6e6ee;--b:#131317"></i>Нуар</button>
+          <button data-theme="emerald"><i class="sw" style="--a:#54d18a;--b:#13251e"></i>Изумруд</button>
+          <button data-theme="royal"><i class="sw" style="--a:#b98cf5;--b:#1f182c"></i>Королевская</button>
+          <button data-theme="wood"><i class="sw" style="--a:#b07a1e;--b:#f3ead9"></i>Дерево</button>
+        </div>
+      </div>
+
+      <div class="setting">
         <div class="setting-label">Панель инструментов</div>
         <div class="seg" id="opt-side">
+          <button data-side="bottom">Снизу</button>
           <button data-side="left">Слева</button>
           <button data-side="right">Справа</button>
         </div>
+      </div>
+
+      <div class="setting">
+        <div class="setting-label">Саундтрек</div>
+        <div class="chips" id="opt-music">
+          <button data-music="off">Тишина</button>
+          <button data-music="calm">Камин</button>
+          <button data-music="epic">Турнир</button>
+          <button data-music="night">Ночь</button>
+        </div>
+      </div>
+
+      <div class="setting row">
+        <div>
+          <div class="setting-label">Громкость</div>
+          <div class="setting-sub" id="vol-sub">35%</div>
+        </div>
+        <input id="music-vol" class="range slim vol" type="range" min="0" max="100" step="5" value="35">
       </div>
 
       <div class="setting row">
@@ -159,14 +232,14 @@
       </div>
 
       <button id="btn-reset" class="btn ghost danger">Сбросить прогресс</button>
-      <p class="sheet-note">Версия 1.0 · головоломки Lichess (CC0)</p>
+      <p class="sheet-note">Версия 2.0 · головоломки Lichess (CC0)</p>
     </div>
   </div>
 
 </div>
 
-<script src="chess.js?v=1"></script>
-<script src="data/puzzles.js?v=1"></script>
-<script src="app.js?v=1"></script>
+<script src="chess.js?v=4"></script>
+<script src="data/puzzles.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
