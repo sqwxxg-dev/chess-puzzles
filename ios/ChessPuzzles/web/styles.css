@@ -600,6 +600,7 @@ svg.arrows {
 .captured {
   height: 28px; display: flex; align-items: center; gap: 3px;
   font-size: 11.5px; color: var(--muted); min-height: 28px;
+  max-width: 100%; overflow: hidden;
 }
 .captured .cap-pc {
   display: inline-block;
