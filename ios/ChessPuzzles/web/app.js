@@ -66,6 +66,11 @@ const S = {
   lastPuzzle: null
 };
 
+// older builds only stored the level; keep the continuous position in sync
+if (typeof S.settings.diffPos !== 'number') {
+  S.settings.diffPos = Math.max(0, Math.min(3, S.settings.diff | 0));
+}
+
 const THEMES_RU = {
   mateIn1: 'мат в 1', mateIn2: 'мат в 2', mateIn3: 'мат в 3', mateIn4: 'мат в 4',
   mateIn5: 'мат в 5', backRankMate: 'мат на последней', smotheredMate: 'спёртый мат',
@@ -1051,32 +1056,44 @@ function activeTool() {
 }
 
 /* ------------------------- soundtrack ------------------------- */
-/* Small procedural score: no audio files, so the app stays tiny. Themes are
-   generated with WebAudio and fade in/out with the volume setting. */
+/* Small procedural score: no audio files, so the app stays tiny. Each track
+   plays through its own gain bus, so switching themes fades the old song out
+   instead of layering two tracks. Progressions are major-key and mid-tempo. */
 const TRACKS = {
+  // cozy: I–V–vi–IV in F, soft shaker and a round bass
   calm: {
-    bpm: 50, root: 196.00, wave: 'sine', pluck: 0.13,
-    chords: [[0, 7, 12], [-3, 4, 9], [-5, 2, 7], [-1, 5, 10]],
-    melody: [0, 4, 7, 11, 7, 4, 2, 6, 9, 6],
-    pat: [1, 0, 0, 1, 0, 0, 1, 0]
+    bpm: 84, root: 174.61, wave: 'triangle', pluck: 0.10,
+    chords: [[0, 4, 7], [7, 11, 14], [9, 12, 16], [5, 9, 12]],
+    melody: [0, 4, 7, 9, 12, 9, 7, 4, 2, 4, 7, 12],
+    pat: [1, 0, 0, 1, 0, 1, 0, 1],
+    hat: [1, 0, 1, 0, 1, 0, 1, 0],
+    pad: 0.045, bass: 0.07
   },
+  // tournament march: driving eighths, same bright progression
   epic: {
-    bpm: 68, root: 164.81, wave: 'triangle', pluck: 0.12,
-    chords: [[0, 7, 12], [0, 5, 12], [-2, 3, 10], [-2, 5, 9]],
-    melody: [0, 3, 7, 10, 12, 10, 7, 3],
-    pat: [1, 0, 1, 0, 1, 0, 1, 1]
+    bpm: 104, root: 146.83, wave: 'triangle', pluck: 0.10,
+    chords: [[0, 4, 7], [7, 11, 14], [9, 12, 16], [5, 9, 12]],
+    melody: [0, 7, 12, 16, 14, 12, 7, 4, 7, 9, 12, 16],
+    pat: [1, 1, 0, 1, 1, 1, 0, 1],
+    hat: [1, 0, 1, 1, 1, 0, 1, 0],
+    pad: 0.04, bass: 0.09
   },
+  // dreamy: major seventh colours, airy top line
   night: {
-    bpm: 44, root: 174.61, wave: 'sine', pluck: 0.11,
-    chords: [[0, 3, 10], [0, 7, 14], [-4, 3, 12], [-2, 5, 9]],
-    melody: [0, 3, 7, 10, 7, 3, 0, 12],
-    pat: [1, 0, 0, 0, 1, 0, 0, 0]
+    bpm: 72, root: 220.00, wave: 'sine', pluck: 0.09,
+    chords: [[0, 4, 7, 11], [5, 9, 12, 16], [7, 11, 14, 18], [9, 12, 16, 19]],
+    melody: [0, 4, 7, 11, 14, 11, 7, 4, 9, 12, 16, 12],
+    pat: [1, 0, 0, 1, 0, 0, 1, 0],
+    hat: [1, 0, 0, 0, 1, 0, 0, 0],
+    pad: 0.05, bass: 0.06
   }
 };
 
 const Music = {
   ctx: null,
   master: null,
+  bus: null,
+  noise: null,
   track: null,
   loop: null,
   step: 0,
@@ -1100,18 +1117,22 @@ const Music = {
     const ctx = this.ensure();
     if (!ctx) return;
     if (ctx.state === 'suspended') { try { ctx.resume(); } catch (e) {} }
-    this.apply(this.wantTheme, this.wantVol, true);
+    this.apply(this.wantTheme, this.wantVol);
   },
 
   apply(theme, volume) {
     this.wantTheme = theme || 'off';
     this.wantVol = volume == null ? 35 : volume;
     if (!this.ctx) return;
-    const target = this.wantVol / 100 * 0.6;
+
+    // silent means really silent: master drops to zero when the music is off
+    const target = this.wantTheme === 'off' ? 0 : this.wantVol / 100 * 0.6;
     const t = this.ctx.currentTime;
     try {
-      this.master.gain.cancelScheduledValues(t);
-      this.master.gain.setTargetAtTime(target, t, 0.5);
+      const g = this.master.gain;
+      g.cancelScheduledValues(t);
+      g.setValueAtTime(g.value, t);
+      g.setTargetAtTime(target, t, this.wantTheme === 'off' ? 0.08 : 0.3);
     } catch (e) {}
 
     if (this.wantTheme === 'off') { this.stop(); return; }
@@ -1119,25 +1140,43 @@ const Music = {
   },
 
   start(theme) {
-    this.stop();
+    this.stop(true); // fade the previous bus out fast, so tracks never overlap
     if (!this.ctx || !TRACKS[theme]) return;
     this.theme = theme;
     this.track = TRACKS[theme];
+    this.bus = this.ctx.createGain();
+    this.bus.gain.value = 1;
+    this.bus.connect(this.master);
     this.step = 0;
-    this.next = this.ctx.currentTime + 0.2;
-    this.loop = setInterval(() => this.tick(), 120);
+    this.next = this.ctx.currentTime + 0.12;
+    this.loop = setInterval(() => this.tick(), 100);
     this.tick();
   },
 
-  stop() {
+  stop(soft) {
+    if (this.loop) { clearInterval(this.loop); this.loop = null; }
+    const ctx = this.ctx;
+    const bus = this.bus;
+    this.bus = null;
     this.theme = 'off';
     this.track = null;
-    if (this.loop) { clearInterval(this.loop); this.loop = null; }
+    if (!ctx || !bus) return;
+    // fade and detach the old bus so its queued notes cannot bleed through
+    const t = ctx.currentTime;
+    try {
+      bus.gain.cancelScheduledValues(t);
+      bus.gain.setValueAtTime(bus.gain.value, t);
+      bus.gain.setTargetAtTime(0, t, soft ? 0.06 : 0.12);
+    } catch (e) {}
+    setTimeout(() => { try { bus.disconnect(); } catch (e) {} }, soft ? 320 : 420);
   },
 
   tick() {
     if (!this.ctx || !this.track) return;
-    const horizon = this.ctx.currentTime + 0.7;
+    const now = this.ctx.currentTime;
+    // after a long pause, do not dump a burst of overdue notes
+    if (this.next < now - 0.25) this.next = now + 0.05;
+    const horizon = now + 0.7;
     let guard = 0;
     while (this.next < horizon && guard++ < 64) {
       this.schedule(this.step, this.next);
@@ -1152,12 +1191,14 @@ const Music = {
     if (step % 16 === 0) {
       const chord = tr.chords[Math.floor(step / 16) % tr.chords.length];
       const dur = (60 / tr.bpm) * 8;
-      for (const semi of chord) this.pad(tr.root * Math.pow(2, semi / 12), when, dur, 0.05);
+      for (const semi of chord) this.pad(tr.root * Math.pow(2, semi / 12), when, dur, tr.pad);
+      this.bassNote(tr.root / 2, when, dur * 0.9, tr.bass);
     }
     if (tr.pat[step % tr.pat.length]) {
       const deg = tr.melody[Math.floor(step / 2) % tr.melody.length];
       this.pluck(tr.root * 2 * Math.pow(2, deg / 12), when, tr.pluck);
     }
+    if (tr.hat[step % tr.hat.length]) this.hat(when);
   },
 
   pad(freq, when, dur, amp) {
@@ -1167,10 +1208,23 @@ const Music = {
     o.type = 'sine';
     o.frequency.value = freq;
     g.gain.setValueAtTime(0.0001, when);
-    g.gain.linearRampToValueAtTime(amp, when + 1.4);
+    g.gain.linearRampToValueAtTime(amp, when + 0.8);
     g.gain.linearRampToValueAtTime(0.0001, when + dur);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(this.bus || this.master);
     o.start(when); o.stop(when + dur + 0.2);
+  },
+
+  bassNote(freq, when, dur, amp) {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.linearRampToValueAtTime(amp, when + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.0008, when + dur);
+    o.connect(g); g.connect(this.bus || this.master);
+    o.start(when); o.stop(when + dur + 0.1);
   },
 
   pluck(freq, when, amp) {
@@ -1180,10 +1234,31 @@ const Music = {
     o.type = (this.track && this.track.wave) || 'sine';
     o.frequency.value = freq;
     g.gain.setValueAtTime(0.0001, when);
-    g.gain.linearRampToValueAtTime(amp, when + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0005, when + 1.6);
-    o.connect(g); g.connect(this.master);
-    o.start(when); o.stop(when + 1.8);
+    g.gain.linearRampToValueAtTime(amp, when + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0005, when + 1.3);
+    o.connect(g); g.connect(this.bus || this.master);
+    o.start(when); o.stop(when + 1.5);
+  },
+
+  hat(when) {
+    const ctx = this.ctx;
+    if (!this.noise) {
+      const len = Math.floor(ctx.sampleRate * 0.08);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+      this.noise = buf;
+    }
+    const s = ctx.createBufferSource();
+    s.buffer = this.noise;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 5200;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.03, when);
+    g.gain.exponentialRampToValueAtTime(0.0005, when + 0.07);
+    s.connect(hp); hp.connect(g); g.connect(this.bus || this.master);
+    s.start(when); s.stop(when + 0.09);
   }
 };
 
@@ -1200,6 +1275,34 @@ function renderMenuStats() {
     const n = (window.PUZZLES || []).length;
     foot.textContent = n.toLocaleString('ru-RU') + ' головоломок';
   }
+}
+
+/* difficulty colours sampled along the same gradient as the track */
+const DIFF_COLORS = [[47, 191, 113], [224, 194, 63], [232, 116, 63], [155, 107, 240]];
+
+function diffColor(pos) {
+  const i = Math.min(2, Math.max(0, Math.floor(pos)));
+  const t = Math.max(0, Math.min(1, pos - i));
+  const a = DIFF_COLORS[i], b = DIFF_COLORS[i + 1];
+  return 'rgb(' + a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(',') + ')';
+}
+
+/* paint the slider, label, thumb and dim overlay for a continuous position */
+function diffPaint() {
+  const pos = Math.max(0, Math.min(3, Number(S.settings.diffPos) || 0));
+  const idx = Math.max(0, Math.min(3, Math.round(pos)));
+  const d = DIFFS[idx];
+  const pct = pos / 3 * 100;
+  const col = diffColor(pos);
+  $('#diff-name').textContent = d.name;
+  $('#diff-name').style.color = col;
+  $('#diff-hint').textContent = d.hint;
+  const wrap = $('.range-wrap');
+  if (wrap) {
+    wrap.style.setProperty('--fill', 'calc(' + pct + '% - ' + (pct / 100 * 26) + 'px)');
+    wrap.style.setProperty('--thumb-color', col);
+  }
+  $$('.diff-ticks span').forEach((s, i) => s.classList.toggle('on', i === idx));
 }
 
 function applySettings() {
@@ -1219,18 +1322,10 @@ function applySettings() {
   $('#opt-coords').setAttribute('aria-checked', S.settings.coords ? 'true' : 'false');
 
   // difficulty slider
-  const idx = Math.max(0, Math.min(3, S.settings.diff | 0));
-  const d = DIFFS[idx];
-  $('#diff').value = String(idx);
-  $('#diff-name').textContent = d.name;
-  $('#diff-name').style.color = d.color;
-  $('#diff-hint').textContent = d.hint;
-  const wrap = $('.range-wrap');
-  if (wrap) {
-    wrap.style.setProperty('--fill', 'calc(' + (idx / 3 * 100) + '% - ' + (idx / 3 * 26) + 'px)');
-    wrap.style.setProperty('--thumb-color', d.color);
-  }
-  $$('.diff-ticks span').forEach((s, i) => s.classList.toggle('on', i === idx));
+  const dpos = Math.max(0, Math.min(3, Number(S.settings.diffPos)));
+  S.settings.diff = Math.max(0, Math.min(3, Math.round(dpos)));
+  $('#diff').value = String(dpos);
+  diffPaint();
 
   // music
   $$('#opt-music button').forEach((b) => b.classList.toggle('active', b.dataset.music === (S.settings.music || 'off')));
@@ -1244,7 +1339,8 @@ function applySettings() {
   if (S.current) render();
 }
 
-/* keep the amber tile under the active tool */
+/* keep the amber tile under the active tool; centre-based so press-squash
+   never shifts it by a pixel */
 function moveDockIndicator() {
   const dock = $('#dock');
   const ind = $('#dock-ind');
@@ -1253,8 +1349,10 @@ function moveDockIndicator() {
   if (!btn) return;
   const dr = dock.getBoundingClientRect();
   const br = btn.getBoundingClientRect();
-  ind.style.transform = 'translate(' + (br.left - dr.left - dock.clientLeft) + 'px,' +
-    (br.top - dr.top - dock.clientTop) + 'px)';
+  const half = ind.offsetWidth / 2;
+  const x = br.left + br.width / 2 - dr.left - dock.clientLeft - half;
+  const y = br.top + br.height / 2 - dr.top - dock.clientTop - half;
+  ind.style.transform = 'translate(' + Math.round(x) + 'px,' + Math.round(y) + 'px)';
 }
 
 /* size the board to the space that is actually left on the screen */
@@ -1306,13 +1404,24 @@ function init() {
   $$('[data-close]').forEach((b) => b.addEventListener('click', () => closeSheet(b.dataset.close)));
   $$('.sheet').forEach((sh) => sh.addEventListener('click', (e) => { if (e.target === sh) sh.classList.remove('on'); }));
 
-  // difficulty
+  // difficulty: continuous drag, level snaps at the midpoints
+  let diffSaveTimer = null;
   $('#diff').addEventListener('input', (e) => {
-    S.settings.diff = +e.target.value;
+    const pos = Math.max(0, Math.min(3, parseFloat(e.target.value) || 0));
+    S.settings.diffPos = pos;
+    const idx = Math.round(pos);
+    if (idx !== S.settings.diff) {
+      S.settings.diff = idx;
+      S.bag = [];
+      haptic('tick');
+    }
+    diffPaint();
+    clearTimeout(diffSaveTimer);
+    diffSaveTimer = setTimeout(saveSettings, 200);
+  });
+  $('#diff').addEventListener('change', () => {
+    clearTimeout(diffSaveTimer);
     saveSettings();
-    applySettings();
-    S.bag = [];
-    haptic('tick');
   });
 
   // settings
@@ -1408,6 +1517,20 @@ function init() {
   applySettings();
   renderMenuStats();
   showScreen('menu');
+
+  // reliable press feedback: :active does not fire consistently in the WKWebView
+  document.addEventListener('pointerdown', (e) => {
+    const el = e.target && e.target.closest ? e.target.closest('button, .btn') : null;
+    if (!el || el.disabled) return;
+    el.classList.remove('pressed');
+    void el.offsetWidth;
+    el.classList.add('pressed');
+  }, true);
+  const unpress = () => {
+    $$('.pressed').forEach((el) => setTimeout(() => el.classList.remove('pressed'), 70));
+  };
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) =>
+    document.addEventListener(ev, unpress, true));
 }
 
 document.addEventListener('DOMContentLoaded', init);
